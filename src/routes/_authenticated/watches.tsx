@@ -46,7 +46,7 @@ function fmt(n: number | null) {
 function WatchesPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const [destCode, setDestCode] = useState(DESTINATIONS[0].code);
+  const [destCode, setDestCode] = useState("NRT");
   const [target, setTarget] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);

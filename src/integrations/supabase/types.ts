@@ -14,7 +14,48 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      watches: {
+        Row: {
+          created_at: string
+          current_low_twd: number | null
+          destination_city_en: string
+          destination_city_zh: string
+          destination_code: string
+          id: string
+          previous_low_twd: number | null
+          status: string
+          target_price_twd: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          current_low_twd?: number | null
+          destination_city_en: string
+          destination_city_zh: string
+          destination_code: string
+          id?: string
+          previous_low_twd?: number | null
+          status?: string
+          target_price_twd: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          current_low_twd?: number | null
+          destination_city_en?: string
+          destination_city_zh?: string
+          destination_code?: string
+          id?: string
+          previous_low_twd?: number | null
+          status?: string
+          target_price_twd?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

@@ -64,15 +64,6 @@ function AuthPage() {
     }
   }
 
-  async function handleGoogle() {
-    setError(null);
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: window.location.origin },
-    });
-    if (error) setError(error.message ?? "Google sign-in failed");
-  }
-
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4">
       <div className="pointer-events-none absolute inset-0 bg-grid-faint opacity-50" />
@@ -134,21 +125,6 @@ function AuthPage() {
               {loading ? "…" : mode === "signin" ? "Sign in / 登入" : "Sign up / 註冊"}
             </button>
           </form>
-
-          <div className="my-5 flex items-center gap-3">
-            <span className="h-px flex-1 bg-border" />
-            <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground/60">
-              or
-            </span>
-            <span className="h-px flex-1 bg-border" />
-          </div>
-
-          <button
-            onClick={handleGoogle}
-            className="w-full rounded-md border border-border px-4 py-2.5 font-display text-sm font-medium text-foreground transition-colors hover:border-muted-foreground"
-          >
-            Continue with Google
-          </button>
 
           <p className="mt-6 text-center text-xs text-muted-foreground">
             {mode === "signin" ? "還沒有帳號？" : "已經有帳號？"}{" "}

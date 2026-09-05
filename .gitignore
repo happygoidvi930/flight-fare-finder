@@ -30,3 +30,13 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Vercel
+.vercel
+
+# This project's lockfile is bun.lock; don't commit an npm one alongside it
+package-lock.json
+
+# Local env overrides (the committed .env holds only publishable Supabase keys)
+.env.local
+.env.*.local

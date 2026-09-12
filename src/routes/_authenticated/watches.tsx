@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -15,92 +15,66 @@ export const Route = createFileRoute("/_authenticated/watches")({
   component: WatchesPage,
 });
 
-interface Watch {
-  id: string;
-  destination_code: string;
-  destination_city_zh: string;
-  destination_city_en: string;
-  target_price_twd: number;
-  current_low_twd: number | null;
-  status: "watching" | "hit" | "sent";
+const API_BASE = "https://vl4ocsoi9k.execute-api.us-east-1.amazonaws.com";
+
+interface Subscription {
+  email: string;
+  route: string;
+  plan_name: string;
+  origin: string;
+  destination: string;
+  target_price: number;
+  currency: string;
   created_at: string;
+  updated_at: string;
 }
 
-const DESTINATIONS = [
-  { code: "NRT", zh: "東京", en: "Tokyo (Narita)" },
-  { code: "HND", zh: "東京", en: "Tokyo (Haneda)" },
-  { code: "KIX", zh: "大阪", en: "Osaka" },
-  { code: "OKA", zh: "沖繩", en: "Okinawa" },
-  { code: "BKK", zh: "曼谷", en: "Bangkok" },
-  { code: "SIN", zh: "新加坡", en: "Singapore" },
-  { code: "HKG", zh: "香港", en: "Hong Kong" },
-  { code: "ICN", zh: "首爾", en: "Seoul" },
-  { code: "MNL", zh: "馬尼拉", en: "Manila" },
-  { code: "SFO", zh: "舊金山", en: "San Francisco" },
-];
+const PLANS = [
+  {
+    plan_name: "tokyo",
+    zh: "台北 ✈ 東京",
+    en: "Taipei → Tokyo",
+    route: "TPE-TYO",
+    hint: 9325,
+  },
+  {
+    plan_name: "seoul",
+    zh: "台北 ✈ 首爾",
+    en: "Taipei → Seoul",
+    route: "TPE-SEL",
+    hint: 5989,
+  },
+] as const;
 
-function fmt(n: number | null) {
+function fmt(n: number | null | undefined) {
   return n == null ? "—" : `NT$${n.toLocaleString("en-US")}`;
 }
 
 function WatchesPage() {
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
-  const [destCode, setDestCode] = useState("NRT");
-  const [target, setTarget] = useState("");
-  const [formError, setFormError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
 
-  const { data: watches, isLoading } = useQuery({
-    queryKey: ["watches"],
+  const { data: email } = useQuery({
+    queryKey: ["auth-email"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("watches")
-        .select("id, destination_code, destination_city_zh, destination_city_en, target_price_twd, current_low_twd, status, created_at")
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data as Watch[];
+      const { data } = await supabase.auth.getUser();
+      return data.user?.email?.toLowerCase() ?? null;
     },
   });
 
-  async function addWatch(e: React.FormEvent) {
-    e.preventDefault();
-    setFormError(null);
-    const price = Number(target.replace(/[^\d]/g, ""));
-    if (!price || price <= 0) {
-      setFormError("請輸入有效的目標價 (TWD)");
-      return;
-    }
-    setSaving(true);
-    try {
-      const { data: userData } = await supabase.auth.getUser();
-      if (!userData.user) {
-        navigate({ to: "/auth", replace: true });
-        return;
-      }
-      const dest = DESTINATIONS.find((d) => d.code === destCode)!;
-      const { error } = await supabase.from("watches").insert({
-        user_id: userData.user.id,
-        destination_code: dest.code,
-        destination_city_zh: dest.zh,
-        destination_city_en: dest.en,
-        target_price_twd: price,
-        status: "watching",
-      });
-      if (error) throw error;
-      setTarget("");
-      await queryClient.invalidateQueries({ queryKey: ["watches"] });
-    } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Failed to add watch");
-    } finally {
-      setSaving(false);
-    }
-  }
+  const { data: subs, isLoading } = useQuery({
+    queryKey: ["subscriptions", email],
+    enabled: !!email,
+    queryFn: async () => {
+      const r = await fetch(
+        `${API_BASE}/subscriptions?email=${encodeURIComponent(email as string)}`,
+      );
+      if (!r.ok) throw new Error(`API ${r.status}`);
+      const body = (await r.json()) as { items: Subscription[] };
+      return body.items;
+    },
+  });
 
-  async function removeWatch(id: string) {
-    const { error } = await supabase.from("watches").delete().eq("id", id);
-    if (!error) await queryClient.invalidateQueries({ queryKey: ["watches"] });
-  }
+  const subByRoute = new Map((subs ?? []).map((s) => [s.route, s]));
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -117,144 +91,173 @@ function WatchesPage() {
             </h1>
           </div>
           <span className="hidden font-mono text-[11px] text-muted-foreground/60 sm:block">
-            {watches?.length ?? 0} routes · TPE 出發
+            {subs?.length ?? 0} / {PLANS.length} plans · TPE 出發 · 每 30 分鐘檢查
           </span>
         </div>
 
-        <div className="mt-8 grid items-start gap-8 lg:grid-cols-12">
-          {/* Watch list */}
-          <div className="lg:col-span-8">
-            <div className="overflow-hidden rounded-lg border border-border bg-card">
-              <div className="flex items-center justify-between border-b border-border px-5 py-3">
-                <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
-                  <span className="size-1.5 animate-pulse rounded-full bg-primary" /> Monitoring
-                </div>
-                <span className="font-mono text-[11px] text-muted-foreground/60">
-                  Auto-checked daily
-                </span>
-              </div>
-              <div className="hidden grid-cols-[1.4fr_1fr_1fr_auto] gap-4 border-b border-border px-5 py-2.5 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground/60 md:grid">
-                <span>Route</span>
-                <span>Target</span>
-                <span>Current low</span>
-                <span className="text-right">Status</span>
-              </div>
-
-              {isLoading ? (
-                <p className="px-5 py-8 font-mono text-[11px] text-muted-foreground">Loading…</p>
-              ) : !watches || watches.length === 0 ? (
-                <div className="px-5 py-10 text-center">
-                  <p className="font-display text-sm font-medium">還沒有監控任何航線</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Add your first route on the right — we'll email you when the fare hits your
-                    target.
-                  </p>
-                </div>
-              ) : (
-                watches.map((w, i) => {
-                  const hit =
-                    w.current_low_twd != null && w.current_low_twd <= w.target_price_twd;
-                  const status = hit ? "HIT" : w.status.toUpperCase();
-                  return (
-                    <div
-                      key={w.id}
-                      className={`group grid grid-cols-2 items-center gap-x-4 gap-y-2 px-5 py-4 md:grid-cols-[1.4fr_1fr_1fr_auto] ${
-                        i < watches.length - 1 ? "border-b border-border" : ""
-                      }`}
-                    >
-                      <span className="font-display text-sm font-medium">
-                        TPE → {w.destination_code}{" "}
-                        <span className="text-xs text-muted-foreground/60">
-                          {w.destination_city_zh} {w.destination_city_en}
-                        </span>
-                      </span>
-                      <span className="font-mono text-xs text-muted-foreground">
-                        {fmt(w.target_price_twd)}
-                      </span>
-                      <span className="font-mono text-xs text-foreground">
-                        {fmt(w.current_low_twd)}
-                      </span>
-                      <span className="flex items-center gap-2 justify-self-end">
-                        <span
-                          className={`rounded-full px-2.5 py-1 font-mono text-[11px] ${
-                            status === "HIT"
-                              ? "border border-primary/30 bg-primary/10 text-primary"
-                              : "border border-border text-muted-foreground"
-                          }`}
-                        >
-                          {status}
-                        </span>
-                        <button
-                          onClick={() => removeWatch(w.id)}
-                          aria-label={`Remove watch TPE to ${w.destination_code}`}
-                          className="font-mono text-[11px] text-muted-foreground/50 opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
-                        >
-                          ✕
-                        </button>
-                      </span>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-            <p className="mt-3 font-mono text-[10px] text-muted-foreground/60">
-              Fares are indicative samples until live fare sources are connected. Emails go to your
-              sign-in address.
-            </p>
-          </div>
-
-          {/* Add watch */}
-          <div className="lg:col-span-4">
-            <form
-              onSubmit={addWatch}
-              className="rounded-lg border border-border bg-card p-5"
-            >
-              <div className="mb-5 flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.2em] text-primary">
-                <span className="size-1.5 rounded-full bg-primary" /> Add watch / 新增監控
-              </div>
-              <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                Destination / 目的地
-              </label>
-              <select
-                value={destCode}
-                onChange={(e) => setDestCode(e.target.value)}
-                className="w-full rounded-md border border-input bg-background px-3 py-2.5 text-sm text-foreground outline-none focus:border-primary"
-              >
-                {DESTINATIONS.map((d) => (
-                  <option key={d.code} value={d.code}>
-                    TPE → {d.code} · {d.zh} {d.en}
-                  </option>
-                ))}
-              </select>
-              <label className="mb-1.5 mt-4 block font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-                Target price (TWD) / 目標價
-              </label>
-              <input
-                inputMode="numeric"
-                value={target}
-                onChange={(e) => setTarget(e.target.value)}
-                placeholder="6,000"
-                className="w-full rounded-md border border-input bg-background px-3 py-2.5 font-mono text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/50 focus:border-primary"
+        {isLoading ? (
+          <p className="mt-10 font-mono text-[11px] text-muted-foreground">Loading…</p>
+        ) : (
+          <div className="mt-8 grid items-start gap-6 md:grid-cols-2">
+            {PLANS.map((p) => (
+              <PlanCard
+                key={p.plan_name}
+                plan={p}
+                email={email ?? null}
+                sub={subByRoute.get(p.route)}
+                onSaved={() =>
+                  queryClient.invalidateQueries({ queryKey: ["subscriptions", email] })
+                }
               />
-              {formError && (
-                <p className="mt-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                  {formError}
-                </p>
-              )}
-              <button
-                type="submit"
-                disabled={saving}
-                className="mt-5 w-full rounded-md bg-primary px-4 py-2.5 font-display text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
-              >
-                {saving ? "…" : "Watch this route / 開始監控"}
-              </button>
-              <p className="mt-3 text-center font-mono text-[10px] text-muted-foreground/60">
-                降價達標時寄信通知你
-              </p>
-            </form>
+            ))}
           </div>
-        </div>
+        )}
+
+        <p className="mt-6 font-mono text-[10px] text-muted-foreground/60">
+          目標達成時會寄降價通知到你的登入信箱（{email ?? "…"}）。價格每 30 分鐘自動檢查一次。
+        </p>
       </main>
+    </div>
+  );
+}
+
+function PlanCard({
+  plan,
+  email,
+  sub,
+  onSaved,
+}: {
+  plan: (typeof PLANS)[number];
+  email: string | null;
+  sub: Subscription | undefined;
+  onSaved: () => void;
+}) {
+  const [target, setTarget] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const subscribed = !!sub;
+  const showForm = !subscribed || editing;
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    const price = Number(target.replace(/[^\d]/g, ""));
+    if (!price || price <= 0) {
+      setError("請輸入有效的目標價 (TWD)");
+      return;
+    }
+    if (!email) {
+      setError("尚未取得登入信箱，請重新整理");
+      return;
+    }
+    setSaving(true);
+    try {
+      const r = await fetch(`${API_BASE}/subscribe`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email, plan_name: plan.plan_name, target_price: price }),
+      });
+      if (!r.ok) {
+        const body = (await r.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error ?? `API ${r.status}`);
+      }
+      setTarget("");
+      setEditing(false);
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "訂閱失敗，請再試一次");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-border bg-card p-6">
+      <div className="flex items-start justify-between">
+        <div>
+          <h2 className="font-display text-lg font-semibold">{plan.zh}</h2>
+          <p className="mt-0.5 font-mono text-[11px] text-muted-foreground/60">
+            {plan.route} · {plan.en}
+          </p>
+        </div>
+        {subscribed && (
+          <span className="rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 font-mono text-[11px] text-primary">
+            已訂閱
+          </span>
+        )}
+      </div>
+
+      <p className="mt-4 font-mono text-[11px] text-muted-foreground">
+        近期最低價約 {fmt(plan.hint)}（參考值）
+      </p>
+
+      {subscribed && (
+        <div className="mt-4 rounded-md border border-border bg-background px-4 py-3">
+          <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+            目前目標價
+          </p>
+          <p className="mt-1 font-display text-xl font-semibold">
+            {fmt(sub?.target_price)}
+          </p>
+        </div>
+      )}
+
+      {showForm ? (
+        <form onSubmit={save} className="mt-4">
+          <label className="mb-1.5 block font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+            Target price (TWD) / 目標價
+          </label>
+          <input
+            inputMode="numeric"
+            value={target}
+            onChange={(e) => setTarget(e.target.value)}
+            placeholder={String(plan.hint + 500)}
+            className="w-full rounded-md border border-input bg-background px-3 py-2.5 font-mono text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/50 focus:border-primary"
+          />
+          {error && (
+            <p className="mt-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              {error}
+            </p>
+          )}
+          <div className="mt-4 flex gap-2">
+            <button
+              type="submit"
+              disabled={saving}
+              className="flex-1 rounded-md bg-primary px-4 py-2.5 font-display text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+            >
+              {saving ? "…" : subscribed ? "更新目標價" : "開始追蹤"}
+            </button>
+            {subscribed && (
+              <button
+                type="button"
+                onClick={() => {
+                  setEditing(false);
+                  setError(null);
+                }}
+                className="rounded-md border border-border px-4 py-2.5 font-display text-sm text-muted-foreground transition-colors hover:text-foreground"
+              >
+                取消
+              </button>
+            )}
+          </div>
+        </form>
+      ) : (
+        <button
+          type="button"
+          onClick={() => {
+            setEditing(true);
+            setTarget(String(sub?.target_price ?? ""));
+          }}
+          className="mt-4 w-full rounded-md border border-border px-4 py-2.5 font-display text-sm font-medium text-foreground transition-colors hover:border-primary hover:text-primary"
+        >
+          更新目標價
+        </button>
+      )}
+
+      <p className="mt-3 text-center font-mono text-[10px] text-muted-foreground/60">
+        降價達標時寄信通知你
+      </p>
     </div>
   );
 }
